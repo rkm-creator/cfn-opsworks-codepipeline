@@ -1,0 +1,116 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: OpsWorks stack and Deployment Pipeline in CodePipeline
+Parameters:
+  KeyName:
+    Description: Name of an existing EC2 KeyPair for SSH access to the instances.
+    Type: "AWS::EC2::KeyPair::KeyName"
+  RepositoryName:
+    Description: The name of the CodeCommit repo
+    Default: demo-opswork
+    Type: String
+    AllowedPattern: '[\x20-\x7E]*'
+    ConstraintDescription: Can contain only ASCII characters.
+  RepositoryBranch:
+    Description: The name of the branch for the CodeCommit repo
+    Type: String
+    Default: master
+    AllowedPattern: '[\x20-\x7E]*'
+    ConstraintDescription: Can contain only ASCII characters.
+
+Resources:
+  MyStack:
+    Type: "AWS::OpsWorks::Stack"
+    Properties:
+      Name: !Ref "AWS::StackName"
+      ServiceRoleArn: !ImportValue OpsWorksServiceRoleArn
+      ConfigurationManager:
+        Name: Chef
+        Version: "11.10"
+      DefaultOs: Amazon Linux 2018.03
+      DefaultInstanceProfileArn: !ImportValue OpsWorksInstanceProfileArn
+
+  MyLayer:
+    Type: "AWS::OpsWorks::Layer"
+    Properties:
+      StackId: !Ref MyStack
+      Name: MyLayer
+      Type: php-app
+      Shortname: mylayer
+      EnableAutoHealing: "true"
+      AutoAssignElasticIps: "false"
+      AutoAssignPublicIps: "true"
+      CustomSecurityGroupIds:
+        - !ImportValue CPOpsDeploySecGroupGroupId
+    DependsOn:
+      - MyStack
+
+#   MyInstance:
+#     Type: "AWS::OpsWorks::Instance"
+#     Properties:
+#       LayerIds:
+#         - !Ref MyLayer
+#       StackId: !Ref MyStack
+#       InstanceType: t2.micro
+#       SshKeyName: !Ref KeyName
+
+  MyOpsWorksApp:
+    Type: "AWS::OpsWorks::App"
+    Properties:
+      StackId: !Ref MyStack
+      Type: php
+      Shortname: phptestapp
+      Name: !Ref "AWS::StackName"
+      AppSource:
+        Type: other
+
+  MyPipeline:
+    Type: "AWS::CodePipeline::Pipeline"
+    DependsOn:
+      - MyStack
+      - MyOpsWorksApp
+      - MyLayer
+      # - MyInstance
+    Properties:
+      Name: !Sub ${AWS::StackName}-Pipeline
+      RoleArn: !ImportValue CodePipelineTrustRoleArn
+      Stages:
+        - Name: Source
+          Actions:
+            - InputArtifacts: []
+              Name: Source
+              ActionTypeId:
+                Category: Source
+                Owner: AWS
+                Version: "1"
+                Provider: CodeCommit
+              OutputArtifacts:
+                - Name: MyApp
+              Configuration:
+                BranchName: !Ref RepositoryBranch
+                RepositoryName: !Ref RepositoryName
+              RunOrder: 1
+        - Name: Deploy
+          Actions:
+            - InputArtifacts:
+                - Name: MyApp
+              Name: DeployPHPApp
+              ActionTypeId:
+                Category: Deploy
+                Owner: AWS
+                Version: "1"
+                Provider: OpsWorks
+              OutputArtifacts: []
+              Configuration:
+                StackId: !Ref MyStack
+                AppId: !Ref MyOpsWorksApp
+                DeploymentType: deploy_app
+                LayerId: !Ref MyLayer
+              RunOrder: 1
+      ArtifactStore:
+        Type: S3
+        Location: !Sub codepipeline-${AWS::Region}-${AWS::AccountId}
+
+Outputs:
+  PipelineUrl:
+    Value: !Sub https://console.aws.amazon.com/codepipeline/home?region=${AWS::Region}#/view/${MyPipeline}
+    Description: Pipeline Url

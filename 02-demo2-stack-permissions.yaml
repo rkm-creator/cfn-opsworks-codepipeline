@@ -1,0 +1,124 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: OpsWorks stack and Deployment Pipeline in CodePipeline
+Resources:
+  OpsWorksServiceRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - opsworks.amazonaws.com
+            Action:
+              - "sts:AssumeRole"
+      Path: /
+      Policies:
+        - PolicyName: opsworks-service
+          PolicyDocument:
+            Statement:
+              - Effect: Allow
+                Action:
+                  - "ec2:*"
+                  - "iam:PassRole"
+                  - "cloudwatch:GetMetricStatistics"
+                  - "elasticloadbalancing:*"
+                Resource: "*"
+
+  OpsWorksInstanceProfile:
+    Type: "AWS::IAM::InstanceProfile"
+    Properties:
+      Path: /
+      Roles:
+        - !Ref OpsWorksInstanceRole
+
+  OpsWorksInstanceRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+            Action:
+              - "sts:AssumeRole"
+      Path: /
+      Policies:
+        - PolicyName: s3-get
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - "s3:GetObject"
+                Resource: "*"
+
+  CodePipelineTrustRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Sid: "1"
+            Effect: Allow
+            Principal:
+              Service:
+                - codepipeline.amazonaws.com
+            Action: "sts:AssumeRole"
+      Path: /
+
+  CodePipelineRolePolicies:
+    Type: "AWS::IAM::Policy"
+    Properties:
+      PolicyName: CodePipelinePolicy
+      PolicyDocument:
+        Statement:
+          - Action:
+              - "s3:*"
+            Resource:
+              - "*"
+            Effect: Allow
+          - Action:
+              - "s3:PutBucketPolicy"
+              - "s3:PutObject"
+            Resource:
+              - !Sub arn:aws:s3:::demo-{AWS::Region}-{AWS::AccountId}-{AWS::StackName}
+            Effect: Allow
+          - Action:
+              - "codecommit:GetBranch"
+              - "codecommit:GetCommit"
+              - "codecommit:UploadArchive"
+              - "codecommit:GetUploadArchiveStatus"
+              - "codecommit:CancelUploadArchive"
+            Resource: "*"
+            Effect: Allow
+          - Action:
+              - "codepipeline:*"
+              - "iam:ListRoles"
+              - "iam:PassRole"
+              - "opsworks:*"
+              - "elasticbeanstalk:DescribeApplications"
+              - "elasticbeanstalk:DescribeEnvironments"
+              - "lambda:GetFunctionConfiguration"
+              - "lambda:ListFunctions"
+            Resource: "*"
+            Effect: Allow
+      Roles:
+        - !Ref CodePipelineTrustRole
+
+Outputs:
+  OpsWorksServiceRole:
+    Description: OpsWorksServiceRole.Arn
+    Value: !GetAtt OpsWorksServiceRole.Arn
+    Export:
+      Name: OpsWorksServiceRoleArn
+  OpsWorksInstanceProfile:
+    Description: OpsWorksInstanceProfile.Arn
+    Value: !GetAtt OpsWorksInstanceProfile.Arn
+    Export:
+      Name: OpsWorksInstanceProfileArn
+  CodePipelineTrustRoleArn:
+    Description: CodePipelineTrustRole.Arn
+    Value: !GetAtt CodePipelineTrustRole.Arn
+    Export:
+      Name: CodePipelineTrustRoleArn
